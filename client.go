@@ -112,7 +112,10 @@ func (t *transport) RoundTrip(r *http.Request) (*http.Response, error) {
 }
 
 // Call runs one unary RPC under r with a deadline per attempt. The error is
-// already actionable text (see Describe).
+// already actionable text (see Describe). An attempt that times out is
+// retried only when r.Idempotent is set, since it may have landed: set it for
+// reads and for writes the hub dedupes (an idempotency key), never for a
+// create that would run twice.
 func Call[T any](ctx context.Context, r Retrier, fn func(context.Context) (T, error)) (T, error) {
 	var out T
 	err := r.Do(ctx, func(ctx context.Context) error {

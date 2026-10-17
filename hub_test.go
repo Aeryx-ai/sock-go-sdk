@@ -23,8 +23,9 @@ type hub struct {
 	mu       sync.Mutex
 	pending  []*sockv1.Message
 	acks     [][]string
-	keys     []string // idempotency keys, one per Send or NotifyOwner attempt
-	failSend int      // Unavailable answers before a send succeeds
+	keys     []string     // idempotency keys, one per Send or NotifyOwner attempt
+	failSend int          // failing answers before a send succeeds
+	failCode connect.Code // what they fail with; zero means Unavailable
 	// keepAcked leaves acknowledged messages pending: a hub whose acks do
 	// not drain the queue.
 	keepAcked bool
@@ -57,6 +58,9 @@ func (h *hub) sent(key, conversation, text string) (*sockv1.Message, error) {
 	h.keys = append(h.keys, key)
 	if h.failSend > 0 {
 		h.failSend--
+		if h.failCode != 0 {
+			return nil, connect.NewError(h.failCode, errors.New("send failed"))
+		}
 		return nil, Unavailable()
 	}
 	return &sockv1.Message{Id: "m-" + key, ConversationId: conversation, Body: &sockv1.Message_Text{Text: text}}, nil

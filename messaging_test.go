@@ -34,6 +34,15 @@ func TestSendReusesOneKeyAcrossRetries(t *testing.T) {
 	}
 }
 
+// Send carries an idempotency key, so a timed-out attempt is safe to retry.
+func TestSendRetriesATimedOutAttempt(t *testing.T) {
+	h := &hub{failSend: 2, failCode: connect.CodeDeadlineExceeded}
+	c := serveHub(t, h)
+	if _, err := c.Send(t.Context(), "conv-1", "hi", ""); err != nil || len(h.keys) != 3 {
+		t.Fatalf("err %v keys %q", err, h.keys)
+	}
+}
+
 func TestSendAndNotifyOwnerUseTheCallersKey(t *testing.T) {
 	h := &hub{}
 	c := serveHub(t, h)

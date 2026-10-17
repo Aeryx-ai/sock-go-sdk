@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"time"
+
+	"connectrpc.com/connect"
 )
 
 // defaultBase and defaultMax are the backoff a zero Base or Max means.
@@ -23,7 +25,8 @@ type Retrier struct {
 	Now      func() time.Time
 	// Jitter spreads each delay so clients failing together do not retry
 	// together. Nil means a random value in [d/2, d].
-	Jitter func(time.Duration) time.Duration
+	Jitter     func(time.Duration) time.Duration
+	Idempotent bool
 }
 
 // DefaultRetrier returns 6 attempts, 500ms doubling, capped at 30s, jittered.
@@ -74,7 +77,7 @@ func (r Retrier) Do(ctx context.Context, fn func(context.Context) error) error {
 	var err error
 	for attempt := range attempts {
 		err = fn(ctx)
-		if err == nil || !Transient(err) {
+		if err == nil || !r.retryable(err) {
 			return err
 		}
 		if attempt == attempts-1 {
@@ -108,4 +111,19 @@ func equalJitter(d time.Duration) time.Duration {
 		return d
 	}
 	return half + rand.N(d-half+1)
+}
+
+// retryable reports whether Do may run fn again after err.
+func (r Retrier) retryable(err error) bool {
+	if connect.CodeOf(err) == connect.CodeDeadlineExceeded {
+		return r.Idempotent
+	}
+	return Transient(err)
+}
+
+// idempotent is r for a call that is safe to run twice: a read, an Ack, or a
+// send under one idempotency key.
+func (r Retrier) idempotent() Retrier {
+	r.Idempotent = true
+	return r
 }

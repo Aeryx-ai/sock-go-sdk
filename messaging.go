@@ -64,7 +64,7 @@ func (c *Client) Send(ctx context.Context, conversationID, text, key string) (*s
 	if err != nil {
 		return nil, err
 	}
-	return Call(ctx, c.Retrier, func(ctx context.Context) (*sockv1.Message, error) {
+	return Call(ctx, c.Retrier.idempotent(), func(ctx context.Context) (*sockv1.Message, error) {
 		res, err := c.Messaging.Send(ctx, connect.NewRequest(&sockv1.SendRequest{ConversationId: conversationID, Text: text, IdempotencyKey: key}))
 		if err != nil {
 			return nil, err
@@ -79,7 +79,7 @@ func (c *Client) NotifyOwner(ctx context.Context, text, key string) (*sockv1.Mes
 	if err != nil {
 		return nil, err
 	}
-	return Call(ctx, c.Retrier, func(ctx context.Context) (*sockv1.Message, error) {
+	return Call(ctx, c.Retrier.idempotent(), func(ctx context.Context) (*sockv1.Message, error) {
 		res, err := c.Messaging.NotifyOwner(ctx, connect.NewRequest(&sockv1.NotifyOwnerRequest{Text: text, IdempotencyKey: key}))
 		if err != nil {
 			return nil, err
@@ -92,7 +92,7 @@ func (c *Client) NotifyOwner(ctx context.Context, text, key string) (*sockv1.Mes
 // is safe; on an error the chunks before it are acknowledged.
 func (c *Client) Ack(ctx context.Context, ids ...string) error {
 	for chunk := range slices.Chunk(ids, AckMax) {
-		if _, err := Call(ctx, c.Retrier, func(ctx context.Context) (*connect.Response[sockv1.AckResponse], error) {
+		if _, err := Call(ctx, c.Retrier.idempotent(), func(ctx context.Context) (*connect.Response[sockv1.AckResponse], error) {
 			return c.Messaging.Ack(ctx, connect.NewRequest(&sockv1.AckRequest{MessageIds: chunk}))
 		}); err != nil {
 			return err
@@ -109,7 +109,7 @@ func (c *Client) Ack(ctx context.Context, ids ...string) error {
 func (c *Client) Drain(ctx context.Context, handle func(context.Context, *sockv1.Message) error) error {
 	seen := map[string]bool{}
 	for {
-		msgs, err := Call(ctx, c.Retrier, func(ctx context.Context) ([]*sockv1.Message, error) {
+		msgs, err := Call(ctx, c.Retrier.idempotent(), func(ctx context.Context) ([]*sockv1.Message, error) {
 			res, err := c.Messaging.FetchPending(ctx, connect.NewRequest(&sockv1.FetchPendingRequest{Limit: fetchBatch}))
 			if err != nil {
 				return nil, err

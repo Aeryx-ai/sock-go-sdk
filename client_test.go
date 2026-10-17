@@ -106,6 +106,22 @@ func TestCallRetriesAndDescribes(t *testing.T) {
 	}
 }
 
+// A timed-out attempt may have landed: Call retries it only for an
+// idempotent call, so a create never runs twice.
+func TestCallRetriesDeadlineExceededOnlyWhenIdempotent(t *testing.T) {
+	for _, idempotent := range []bool{false, true} {
+		calls := 0
+		r := Retrier{Attempts: 3, Sleep: func(context.Context, time.Duration) error { return nil }, Idempotent: idempotent}
+		_, _ = Call(t.Context(), r, func(context.Context) (string, error) {
+			calls++
+			return "", connect.NewError(connect.CodeDeadlineExceeded, nil)
+		})
+		if want := map[bool]int{false: 1, true: 3}[idempotent]; calls != want {
+			t.Fatalf("idempotent %v: %d calls, want %d", idempotent, calls, want)
+		}
+	}
+}
+
 func TestValidate(t *testing.T) {
 	good := "sock_pt_abc"
 	tests := []struct{ name, url, token, want string }{
