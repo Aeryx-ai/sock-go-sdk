@@ -2,6 +2,7 @@ package sock
 
 import (
 	"context"
+	"fmt"
 	"math/rand/v2"
 	"time"
 )
@@ -46,7 +47,8 @@ func SleepCtx(ctx context.Context, d time.Duration) error {
 // Attempts below 1 count as 1; nil Sleep, Now and Jitter default to SleepCtx,
 // time.Now and [d/2, d], a zero Base to 500ms and a zero Max to 30s, so the
 // zero value is safe. A Retry-After longer than Max ends Do at once with the
-// error: it is never retried early.
+// error: it is never retried early. When ctx ends during a backoff, the error
+// wraps both ctx's and the last attempt's.
 func (r Retrier) Do(ctx context.Context, fn func(context.Context) error) error {
 	attempts := max(r.Attempts, 1)
 	sleep, now := r.Sleep, r.Now
@@ -88,7 +90,9 @@ func (r Retrier) Do(ctx context.Context, fn func(context.Context) error) error {
 			wait = max(wait, ra) // a floor: "0" or a past date never cuts the backoff
 		}
 		if serr := sleep(ctx, wait); serr != nil {
-			return serr
+			// both stay reachable: errors.Is sees the cancellation, and
+			// Reason, Transient and Describe the last attempt's error
+			return fmt.Errorf("%w; last attempt: %w", serr, err)
 		}
 		delay = min(delay*2, maxWait)
 	}

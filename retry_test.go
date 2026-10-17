@@ -2,9 +2,13 @@ package sock
 
 import (
 	"context"
+	"errors"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
+
+	sockv1 "github.com/guygrigsby/sock-contract/gen/go/sock/v1"
 )
 
 type fakeClock struct {
@@ -201,5 +205,17 @@ func TestRetryZeroBaseBacksOffWithJitter(t *testing.T) {
 		if f.waits[i] < d/2 || f.waits[i] > d {
 			t.Fatalf("waits %v, want each in [d/2, d] of %v", f.waits, steps)
 		}
+	}
+}
+
+// ctx ending during a backoff still reports what the last attempt hit
+func TestRetryCanceledDuringBackoffKeepsTheLastError(t *testing.T) {
+	r := Retrier{Attempts: 3, Sleep: func(context.Context, time.Duration) error { return context.Canceled }}
+	err := r.Do(context.Background(), func(context.Context) error { return RateLimited("1") })
+	if !errors.Is(err, context.Canceled) || Reason(err) != sockv1.ErrorReason_ERROR_REASON_RATE_LIMITED || !Transient(err) {
+		t.Fatalf("err %v reason %v", err, Reason(err))
+	}
+	if got := Describe(err).Error(); !strings.Contains(got, "sending too fast") {
+		t.Fatalf("Describe = %q", got)
 	}
 }
