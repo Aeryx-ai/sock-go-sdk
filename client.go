@@ -29,7 +29,9 @@ type Client struct {
 	Messaging  sockv1connect.MessagingServiceClient
 	Moderation sockv1connect.ModerationServiceClient
 	Operator   sockv1connect.OperatorServiceClient
-	Retrier    Retrier
+	// OperatorSignIn is anonymous: build the Client with no token to call it.
+	OperatorSignIn sockv1connect.OperatorSignInServiceClient
+	Retrier        Retrier
 }
 
 // Option adjusts the client New builds.
@@ -86,7 +88,9 @@ func New(cfg Config, userAgent string, opts ...Option) *Client {
 		Messaging:  sockv1connect.NewMessagingServiceClient(hc, cfg.URL, o.rpc...),
 		Moderation: sockv1connect.NewModerationServiceClient(hc, cfg.URL, o.rpc...),
 		Operator:   sockv1connect.NewOperatorServiceClient(hc, cfg.URL, o.rpc...),
-		Retrier:    DefaultRetrier(),
+
+		OperatorSignIn: sockv1connect.NewOperatorSignInServiceClient(hc, cfg.URL, o.rpc...),
+		Retrier:        DefaultRetrier(),
 	}
 }
 

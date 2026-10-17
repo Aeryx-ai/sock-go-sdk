@@ -94,7 +94,7 @@ func TestNewBuildsEveryService(t *testing.T) {
 	srv := httptest.NewServer(http.NotFoundHandler())
 	t.Cleanup(srv.Close)
 	c := New(Config{URL: srv.URL, Token: token}, "t")
-	if c.Identity == nil || c.Messaging == nil || c.Moderation == nil || c.Operator == nil {
+	if c.Identity == nil || c.Messaging == nil || c.Moderation == nil || c.Operator == nil || c.OperatorSignIn == nil {
 		t.Fatalf("clients %+v", c)
 	}
 }
