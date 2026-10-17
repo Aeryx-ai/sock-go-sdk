@@ -35,12 +35,18 @@ const (
 // typically a half-open connection. Listen reconnects after it.
 var ErrStreamIdle = errors.New("no message or heartbeat")
 
-// errNotHandled ends a stream attempt whose handler failed, so the reconnect
-// replays from the hub queue in order.
-var errNotHandled = errors.New("message not handled")
+// HandlerError is a handler failure Listen gave up on: the message is still
+// pending, and redelivering it alone would only fail again.
+type HandlerError struct {
+	MessageID string
+	Err       error
+}
 
-// WaitError is a handler failure that asks Listen to wait at least After
-// before its next attempt: the hint a downstream Retry-After gave.
+func (e *HandlerError) Error() string { return "message " + e.MessageID + ": " + e.Err.Error() }
+func (e *HandlerError) Unwrap() error { return e.Err }
+
+// WaitError is a handler failure that asks Listen to redeliver the message
+// no sooner than After: the hint a downstream Retry-After gave.
 type WaitError struct {
 	After time.Duration
 	Err   error
@@ -55,7 +61,8 @@ type ListenOptions struct {
 	// Zero means DefaultIdle.
 	Idle time.Duration
 	// OnReconnect hears each stream attempt that ended and the wait before
-	// the next. err is nil when the hub closed the stream cleanly.
+	// the next. err is nil when the hub closed the stream cleanly, and a
+	// *HandlerError when a message is being redelivered.
 	OnReconnect func(err error, wait time.Duration)
 	// Sleep, Jitter and Now are for tests. Nil means SleepCtx, a random
 	// value in [d/2, d] and time.Now.
@@ -65,18 +72,26 @@ type ListenOptions struct {
 }
 
 // Listen subscribes and passes each delivered message to handle, in order,
-// until ctx ends (nil) or the hub refuses the caller for good (the described
+// until ctx ends (nil), the hub refuses the caller for good (the described
 // error: EndsSession, or CALLER_NOT_ALLOWED for a token that may not
-// subscribe). handle runs on ctx, never cut off by the idle watchdog, and
+// subscribe) or handle fails for good (a *HandlerError). handle runs on ctx, never cut off by the idle watchdog, and
 // acknowledges (Ack) what it is done with: delivery is at-least-once, and an
 // unacknowledged message comes back on the next stream.
 //
-// A handle error ends the stream attempt and leaves the message pending, so
-// it comes back first on reconnect and nothing behind it is handled before
-// it. Listen reconnects after any other failure: jittered backoff from 1s to
-// 5s, reset once a stream received anything, a minute after a refusal that
-// does not heal on its own, never sooner than the hub's Retry-After (capped
-// at an hour) or a handler's WaitError.
+// A handle error is never read as the hub refusing the stream. It leaves the
+// message pending, and nothing behind it is handled before it. When the error
+// can heal (a WaitError, or a hub error Transient reports) the stream attempt
+// ends and the message comes back first on reconnect, after the backoff below.
+// Any other handle error would fail again on every redelivery, so Listen
+// returns it as a *HandlerError naming the message: the caller fixes the
+// cause, or Acks the message to skip it, and calls Listen again. A handler
+// that wants a failed message retried later returns a WaitError.
+//
+// Listen reconnects after any stream failure: jittered backoff from 1s to 5s,
+// reset once a stream received anything, a minute after a refusal that does
+// not heal on its own, never sooner than the hub's Retry-After (capped at an
+// hour). A redelivery backs off the same way, never sooner than the
+// handler's Retry-After or WaitError.
 func (c *Client) Listen(ctx context.Context, handle func(context.Context, *sockv1.Message) error, o ListenOptions) error {
 	if o.Idle <= 0 {
 		o.Idle = DefaultIdle
@@ -96,14 +111,23 @@ func (c *Client) Listen(ctx context.Context, handle func(context.Context, *sockv
 		if ctx.Err() != nil {
 			return nil
 		}
-		if EndsSession(err) || Reason(err) == sockv1.ErrorReason_ERROR_REASON_CALLER_NOT_ALLOWED {
-			return Describe(err)
-		}
-		if received && !errors.Is(err, errNotHandled) {
-			backoff = reconnectBase // the connection worked; the next failure is fresh
-		}
-		if err != nil && !reconnectable(err) {
-			backoff = refusalBackoff
+		heard := Describe(err)
+		if he, ok := errors.AsType[*HandlerError](err); ok {
+			// the handler's own error, so no stream classification applies
+			if _, retry := errors.AsType[*WaitError](he.Err); !retry && !Transient(he.Err) {
+				return he
+			}
+			heard = he
+		} else {
+			if EndsSession(err) || Reason(err) == sockv1.ErrorReason_ERROR_REASON_CALLER_NOT_ALLOWED {
+				return heard
+			}
+			if received {
+				backoff = reconnectBase // the connection worked; the next failure is fresh
+			}
+			if err != nil && !reconnectable(err) {
+				backoff = refusalBackoff
+			}
 		}
 		wait := o.Jitter(backoff)
 		if err != nil {
@@ -115,7 +139,7 @@ func (c *Client) Listen(ctx context.Context, handle func(context.Context, *sockv
 			}
 		}
 		if o.OnReconnect != nil {
-			o.OnReconnect(Describe(err), wait)
+			o.OnReconnect(heard, wait)
 		}
 		if o.Sleep(ctx, wait) != nil {
 			return nil
@@ -153,7 +177,7 @@ func (c *Client) listenOnce(ctx context.Context, handle func(context.Context, *s
 		received = true
 		if m := stream.Msg().GetMessage(); m != nil {
 			if err := handle(ctx, m); err != nil {
-				return received, fmt.Errorf("%w (%s): %w", errNotHandled, m.GetId(), err)
+				return received, &HandlerError{MessageID: m.GetId(), Err: err}
 			}
 		}
 		watchdog.Reset(idle)
@@ -169,7 +193,7 @@ func (c *Client) listenOnce(ctx context.Context, handle func(context.Context, *s
 func reconnectable(err error) bool {
 	var ce *connect.Error
 	if !errors.As(err, &ce) {
-		return true // network-level failure, the idle watchdog or a handler
+		return true // network-level failure or the idle watchdog
 	}
 	switch ce.Code() {
 	case connect.CodeUnauthenticated, connect.CodePermissionDenied, connect.CodeInvalidArgument, connect.CodeUnimplemented:

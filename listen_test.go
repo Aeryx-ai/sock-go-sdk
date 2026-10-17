@@ -72,8 +72,9 @@ func TestListenDeliversInOrderAndReconnects(t *testing.T) {
 	}
 }
 
-// A failed message ends the attempt and comes back first; the backoff keeps
-// growing, since redelivering it is no sign the handler will succeed.
+// A transient handler failure ends the attempt and the message comes back
+// first; the backoff keeps growing, since redelivering it is no sign the
+// handler will succeed.
 func TestListenReplaysAFailedMessageFirst(t *testing.T) {
 	h := &hub{subscribe: func(_ int, _ context.Context, s *connect.ServerStream[sockv1.SubscribeResponse]) error {
 		return send(s, "a", "b")
@@ -84,13 +85,43 @@ func TestListenReplaysAFailedMessageFirst(t *testing.T) {
 	var got []string
 	_ = c.Listen(ctx, func(_ context.Context, m *sockv1.Message) error {
 		got = append(got, m.GetId())
-		return errHandler
+		return Unavailable()
 	}, listenOpts(w))
 	if !slices.Equal(got, []string{"a", "a", "a"}) {
 		t.Fatalf("got %q", got)
 	}
 	if !slices.Equal(w.got, []time.Duration{time.Second, 2 * time.Second, 4 * time.Second}) {
 		t.Fatalf("waits %v", w.got)
+	}
+}
+
+// A handler error is the handler's, never a stream refusal: one that would
+// fail again on redelivery (a poison message, a call the token may not make)
+// ends Listen with the message pending instead of redelivering it forever or
+// reading as the hub refusing the subscription.
+func TestListenReturnsAHandlersPermanentError(t *testing.T) {
+	for name, herr := range map[string]error{
+		"plain":              errHandler,
+		"invalid argument":   connect.NewError(connect.CodeInvalidArgument, errors.New("bad text")),
+		"caller not allowed": withReason(connect.NewError(connect.CodePermissionDenied, nil), sockv1.ErrorReason_ERROR_REASON_CALLER_NOT_ALLOWED),
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := &hub{subscribe: func(_ int, _ context.Context, s *connect.ServerStream[sockv1.SubscribeResponse]) error {
+				return send(s, "a", "b")
+			}}
+			c := serveHub(t, h)
+			ctx, cancel := context.WithCancel(t.Context())
+			w := &waits{stopAfter: 2, cancel: cancel}
+			var got []string
+			err := c.Listen(ctx, func(_ context.Context, m *sockv1.Message) error {
+				got = append(got, m.GetId())
+				return herr
+			}, listenOpts(w))
+			he, ok := errors.AsType[*HandlerError](err)
+			if !ok || he.MessageID != "a" || !errors.Is(err, herr) || len(w.got) != 0 || !slices.Equal(got, []string{"a"}) {
+				t.Fatalf("err %v, waits %v, handled %q", err, w.got, got)
+			}
+		})
 	}
 }
 
