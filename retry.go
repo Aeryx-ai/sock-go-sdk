@@ -2,7 +2,14 @@ package sock
 
 import (
 	"context"
+	"math/rand/v2"
 	"time"
+)
+
+// defaultBase and defaultMax are the backoff a zero Base or Max means.
+const (
+	defaultBase = 500 * time.Millisecond
+	defaultMax  = 30 * time.Second
 )
 
 // Retrier retries transient failures with exponential backoff. A server's
@@ -13,11 +20,14 @@ type Retrier struct {
 	Max      time.Duration
 	Sleep    func(context.Context, time.Duration) error
 	Now      func() time.Time
+	// Jitter spreads each delay so clients failing together do not retry
+	// together. Nil means a random value in [d/2, d].
+	Jitter func(time.Duration) time.Duration
 }
 
-// DefaultRetrier returns 6 attempts, 500ms doubling, capped at 30s.
+// DefaultRetrier returns 6 attempts, 500ms doubling, capped at 30s, jittered.
 func DefaultRetrier() Retrier {
-	return Retrier{Attempts: 6, Base: 500 * time.Millisecond, Max: 30 * time.Second, Sleep: SleepCtx, Now: time.Now}
+	return Retrier{Attempts: 6, Base: defaultBase, Max: defaultMax, Sleep: SleepCtx, Now: time.Now}
 }
 
 // SleepCtx waits d or until ctx is done.
@@ -33,9 +43,10 @@ func SleepCtx(ctx context.Context, d time.Duration) error {
 }
 
 // Do calls fn until it succeeds, fails permanently, or attempts run out.
-// Attempts below 1 count as 1; nil Sleep and Now default to SleepCtx and
-// time.Now, and a zero Max to 30s, so the zero value is safe. A Retry-After
-// longer than Max ends Do at once with the error: it is never retried early.
+// Attempts below 1 count as 1; nil Sleep, Now and Jitter default to SleepCtx,
+// time.Now and [d/2, d], a zero Base to 500ms and a zero Max to 30s, so the
+// zero value is safe. A Retry-After longer than Max ends Do at once with the
+// error: it is never retried early.
 func (r Retrier) Do(ctx context.Context, fn func(context.Context) error) error {
 	attempts := max(r.Attempts, 1)
 	sleep, now := r.Sleep, r.Now
@@ -45,11 +56,19 @@ func (r Retrier) Do(ctx context.Context, fn func(context.Context) error) error {
 	if now == nil {
 		now = time.Now
 	}
+	jitter := r.Jitter
+	if jitter == nil {
+		jitter = equalJitter
+	}
 	maxWait := r.Max
 	if maxWait <= 0 {
-		maxWait = 30 * time.Second
+		maxWait = defaultMax
 	}
-	delay := min(r.Base, maxWait)
+	base := r.Base
+	if base <= 0 {
+		base = defaultBase
+	}
+	delay := min(base, maxWait)
 	var err error
 	for attempt := range attempts {
 		err = fn(ctx)
@@ -59,7 +78,7 @@ func (r Retrier) Do(ctx context.Context, fn func(context.Context) error) error {
 		if attempt == attempts-1 {
 			break
 		}
-		wait := delay
+		wait := jitter(delay)
 		if ra, ok := RetryAfter(err, now()); ok {
 			if ra > maxWait {
 				// retrying sooner is what the header asks not to do: give
@@ -74,4 +93,15 @@ func (r Retrier) Do(ctx context.Context, fn func(context.Context) error) error {
 		delay = min(delay*2, maxWait)
 	}
 	return err
+}
+
+// equalJitter returns a random duration in [d/2, d]: half the backoff is kept
+// so a reconnect never degenerates into an immediate retry, and the rest
+// spreads clients returning to a restarted hub.
+func equalJitter(d time.Duration) time.Duration {
+	half := d / 2
+	if half <= 0 {
+		return d
+	}
+	return half + rand.N(d-half+1)
 }

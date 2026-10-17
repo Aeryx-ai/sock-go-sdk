@@ -19,7 +19,7 @@ func (f *fakeClock) sleep(_ context.Context, d time.Duration) error {
 }
 
 func retrier(f *fakeClock) Retrier {
-	return Retrier{Attempts: 6, Base: 500 * time.Millisecond, Max: 30 * time.Second, Sleep: f.sleep, Now: func() time.Time { return f.now }}
+	return Retrier{Attempts: 6, Base: 500 * time.Millisecond, Max: 30 * time.Second, Sleep: f.sleep, Now: func() time.Time { return f.now }, Jitter: func(d time.Duration) time.Duration { return d }}
 }
 
 func TestRetryBacksOffThenSucceeds(t *testing.T) {
@@ -185,5 +185,21 @@ func TestRetryAfterBelowBackoffKeepsTheBackoff(t *testing.T) {
 				t.Fatalf("waits %v", f.waits)
 			}
 		})
+	}
+}
+
+// a zero Base backs off from 500ms, and the default jitter keeps each wait in
+// the upper half of its step
+func TestRetryZeroBaseBacksOffWithJitter(t *testing.T) {
+	f := &fakeClock{}
+	_ = Retrier{Attempts: 4, Sleep: f.sleep}.Do(context.Background(), func(context.Context) error { return Unavailable() })
+	steps := []time.Duration{500 * time.Millisecond, time.Second, 2 * time.Second}
+	if len(f.waits) != len(steps) {
+		t.Fatalf("waits %v", f.waits)
+	}
+	for i, d := range steps {
+		if f.waits[i] < d/2 || f.waits[i] > d {
+			t.Fatalf("waits %v, want each in [d/2, d] of %v", f.waits, steps)
+		}
 	}
 }

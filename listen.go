@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math/rand/v2"
 	"sync/atomic"
 	"time"
 
@@ -177,15 +176,4 @@ func reconnectable(err error) bool {
 		return false
 	}
 	return true
-}
-
-// equalJitter returns a random duration in [d/2, d]: half the backoff is kept
-// so a reconnect never degenerates into an immediate retry, and the rest
-// spreads clients returning to a restarted hub.
-func equalJitter(d time.Duration) time.Duration {
-	half := d / 2
-	if half <= 0 {
-		return d
-	}
-	return half + rand.N(d-half+1)
 }
