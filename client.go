@@ -13,7 +13,7 @@ import (
 
 	"connectrpc.com/connect"
 
-	"github.com/guygrigsby/sock-contract/gen/go/sock/v1/sockv1connect"
+	"github.com/aeryx-ai/sock-contract/gen/go/sock/v1/sockv1connect"
 )
 
 // UnaryTimeout bounds each attempt of a unary call; Subscribe has no deadline.

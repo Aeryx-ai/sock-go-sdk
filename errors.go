@@ -9,7 +9,7 @@ import (
 
 	"connectrpc.com/connect"
 
-	sockv1 "github.com/guygrigsby/sock-contract/gen/go/sock/v1"
+	sockv1 "github.com/aeryx-ai/sock-contract/gen/go/sock/v1"
 )
 
 // maxRetryAfterSecs bounds parsed Retry-After seconds (about 31 years).
