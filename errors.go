@@ -78,8 +78,9 @@ var reasonText = map[sockv1.ErrorReason]string{
 	sockv1.ErrorReason_ERROR_REASON_RATE_LIMITED:         "sending too fast",
 	sockv1.ErrorReason_ERROR_REASON_ACCOUNT_SUSPENDED:    "this account is suspended",
 	sockv1.ErrorReason_ERROR_REASON_TERMS_NOT_ACCEPTED:   "the owner has not accepted the current terms; accept them in the sock app",
-	// after the server's message, which names the limit (ADR 10): puppets
-	// per owner, tokens per puppet or machine keys per human
+	// after the server's message, which names the limit (sock-contract
+	// docs/adr/0010): puppets per owner, tokens per puppet or machine keys
+	// per human
 	sockv1.ErrorReason_ERROR_REASON_LIMIT_REACHED: "erase a puppet you no longer use or revoke an unused token or machine key, then try again",
 	// the reasons that need no command to act on, worded once for every caller
 	sockv1.ErrorReason_ERROR_REASON_HANDLE_TAKEN:          "that handle is taken",
