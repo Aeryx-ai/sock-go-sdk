@@ -166,3 +166,24 @@ func TestRetryZeroMaxDefaultsTo30s(t *testing.T) {
 		t.Fatalf("waits %v", f.waits)
 	}
 }
+
+// Retry-After is a floor: "0" or a past date never cuts the backoff to nothing
+func TestRetryAfterBelowBackoffKeepsTheBackoff(t *testing.T) {
+	now := time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)
+	for name, hdr := range map[string]string{"zero": "0", "past date": now.Add(-time.Hour).Format(http.TimeFormat)} {
+		t.Run(name, func(t *testing.T) {
+			f := &fakeClock{now: now}
+			calls := 0
+			_ = retrier(f).Do(context.Background(), func(context.Context) error {
+				calls++
+				if calls < 3 {
+					return RateLimited(hdr)
+				}
+				return nil
+			})
+			if len(f.waits) != 2 || f.waits[0] != 500*time.Millisecond || f.waits[1] != time.Second {
+				t.Fatalf("waits %v", f.waits)
+			}
+		})
+	}
+}

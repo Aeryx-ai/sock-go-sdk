@@ -5,8 +5,8 @@ import (
 	"time"
 )
 
-// Retrier retries transient failures with exponential backoff. Retry-After
-// from the server overrides the computed delay.
+// Retrier retries transient failures with exponential backoff. A server's
+// Retry-After is a floor under the computed delay.
 type Retrier struct {
 	Attempts int
 	Base     time.Duration
@@ -66,7 +66,7 @@ func (r Retrier) Do(ctx context.Context, fn func(context.Context) error) error {
 				// up, and the caller reports the wait
 				return err
 			}
-			wait = ra
+			wait = max(wait, ra) // a floor: "0" or a past date never cuts the backoff
 		}
 		if serr := sleep(ctx, wait); serr != nil {
 			return serr
