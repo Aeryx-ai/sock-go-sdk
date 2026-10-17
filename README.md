@@ -60,7 +60,7 @@ func main() {
 
 The module is v0: minor versions may change the API until v1, patch versions do not. The sock-contract types in its signatures, such as `*sockv1.Message`, are part of that API, so a contract upgrade that changes them is an SDK API change too.
 
-Decisions are in [docs/adr](docs/adr). `make check` runs gofmt, vet on every target OS, golangci-lint and the race-enabled tests; `make fuzz` runs the fuzz targets.
+`make check` runs gofmt, vet on every target OS, golangci-lint and the race-enabled tests; `make fuzz` runs the fuzz targets.
 
 Report vulnerabilities privately through GitHub's [Report a vulnerability](https://github.com/aeryx-ai/sock-go-sdk/security/advisories/new) on the Security tab, not in a public issue.
 
