@@ -48,7 +48,7 @@ func Transient(err error) bool {
 }
 
 // RetryAfter reads the Retry-After header from a Connect error, in either
-// delta-seconds or HTTP-date form. A date in the past means retry now.
+// delta-seconds or any HTTP-date form. A date in the past means retry now.
 func RetryAfter(err error, now time.Time) (time.Duration, bool) {
 	var ce *connect.Error
 	if !errors.As(err, &ce) {
@@ -62,7 +62,7 @@ func RetryAfter(err error, now time.Time) (time.Duration, bool) {
 		// Clamp before multiplying so huge values cannot overflow Duration.
 		return time.Duration(min(secs, maxRetryAfterSecs)) * time.Second, true
 	}
-	if at, perr := time.Parse(http.TimeFormat, v); perr == nil {
+	if at, perr := http.ParseTime(v); perr == nil {
 		return max(at.Sub(now), 0), true
 	}
 	return 0, false

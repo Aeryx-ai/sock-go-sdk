@@ -49,6 +49,12 @@ func TestRetryAfter(t *testing.T) {
 	if !ok || d != 0 {
 		t.Fatalf("past date: %v %v", d, ok)
 	}
+	// RFC 9110 obsolete forms a recipient must accept: RFC 850 and asctime
+	for _, hdr := range []string{"Saturday, 10-Oct-26 12:01:30 GMT", "Sat Oct 10 12:01:30 2026"} {
+		if d, ok := RetryAfter(RateLimited(hdr), now); !ok || d != 90*time.Second {
+			t.Fatalf("%q: %v %v", hdr, d, ok)
+		}
+	}
 	if _, ok := RetryAfter(RateLimited("soon"), now); ok {
 		t.Fatal("garbage header must be ignored")
 	}
