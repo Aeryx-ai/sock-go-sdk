@@ -14,16 +14,8 @@ jobs:
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    env:
-      # sock-contract is private until it is published (ADR 1); drop this,
-      # the agent and the rewrite once it is public
-      GOPRIVATE: github.com/guygrigsby/*
     steps:
       - uses: actions/checkout@v4
-      - uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: ${{ secrets.CONTRACT_DEPLOY_KEY }}
-      - run: git config --global url."git@github.com:".insteadOf "https://github.com/"
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
